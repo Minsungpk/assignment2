@@ -8,7 +8,7 @@ const MongoStore = require("connect-mongo").default;
 const Joi = require("joi");
 
 const app = express();
-const PORT = 8000;
+const PORT = process.env.PORT || 8000;
 
 // MongoDB setup
 const client = new MongoClient(process.env.MONGODB_URI);
