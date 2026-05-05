@@ -39,7 +39,12 @@ app.use(session({
     resave: false,
     saveUninitialized: false,
     store: MongoStore.create({
-        mongoUrl: process.env.MONGODB_URI
+        mongoUrl: process.env.MONGODB_URI,
+        collectionName: "sessions",
+        ttl: 60 * 60,
+        crypto: {
+            secret: process.env.MONGODB_SESSION_SECRET
+        }
     }),
     cookie: {
         maxAge: 1000 * 60 * 60
@@ -51,7 +56,6 @@ app.get("/", (req, res) => {
         return res.send(`
             <h1>Home Page</h1>
             <p>Hello, ${req.session.name}</p>
-
             <a href="/members">Go to Members</a><br>
             <a href="/logout">Log out</a>
         `);
@@ -59,11 +63,9 @@ app.get("/", (req, res) => {
 
     res.send(`
         <h1>Home Page</h1>
-
         <img src="/image1.jpg" width="300">
         <img src="/image2.jpg" width="300">
         <img src="/image3.jpg" width="300">
-
         <br><br>
         <a href="/signup">Go to Signup</a><br>
         <a href="/login">Go to Login</a>
@@ -73,14 +75,12 @@ app.get("/", (req, res) => {
 app.get("/signup", (req, res) => {
     res.send(`
         <h1>Signup Page</h1>
-
         <form method="POST" action="/signup">
             <input name="name" placeholder="Name" required><br>
             <input name="email" placeholder="Email" required><br>
             <input name="password" type="password" placeholder="Password" required><br>
             <button type="submit">Sign Up</button>
         </form>
-
         <br>
         <a href="/">Go home</a>
     `);
@@ -117,13 +117,11 @@ app.post("/signup", async (req, res) => {
 app.get("/login", (req, res) => {
     res.send(`
         <h1>Login Page</h1>
-
         <form method="POST" action="/login">
             <input name="email" placeholder="Email" required><br>
             <input name="password" type="password" placeholder="Password" required><br>
             <button type="submit">Log In</button>
         </form>
-
         <br>
         <a href="/">Go home</a>
     `);
@@ -180,9 +178,7 @@ app.get("/members", (req, res) => {
     res.send(`
         <h1>Members Page</h1>
         <p>Hello, ${req.session.name}</p>
-
         <img src="/${randomImage}" width="300">
-
         <br><br>
         <a href="/logout">Log out</a>
     `);
