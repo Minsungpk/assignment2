@@ -10,7 +10,6 @@ const Joi = require("joi");
 const app = express();
 const PORT = process.env.PORT || 8000;
 
-// MongoDB setup
 const client = new MongoClient(process.env.MONGODB_URI);
 let db;
 
@@ -21,7 +20,6 @@ async function connectDB() {
 }
 connectDB();
 
-// Joi validation schemas
 const signupSchema = Joi.object({
     name: Joi.string().max(50).required(),
     email: Joi.string().email().max(100).required(),
@@ -33,7 +31,6 @@ const loginSchema = Joi.object({
     password: Joi.string().max(100).required()
 });
 
-// Middleware
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static("public"));
 
@@ -45,12 +42,21 @@ app.use(session({
         mongoUrl: process.env.MONGODB_URI
     }),
     cookie: {
-        maxAge: 1000 * 60 * 60 // 1 hour
+        maxAge: 1000 * 60 * 60
     }
 }));
 
-// -------------------- HOME --------------------
 app.get("/", (req, res) => {
+    if (req.session.authenticated) {
+        return res.send(`
+            <h1>Home Page</h1>
+            <p>Hello, ${req.session.name}</p>
+
+            <a href="/members">Go to Members</a><br>
+            <a href="/logout">Log out</a>
+        `);
+    }
+
     res.send(`
         <h1>Home Page</h1>
 
@@ -60,12 +66,10 @@ app.get("/", (req, res) => {
 
         <br><br>
         <a href="/signup">Go to Signup</a><br>
-        <a href="/login">Go to Login</a><br>
-        <a href="/members">Go to Members</a>
+        <a href="/login">Go to Login</a>
     `);
 });
 
-// -------------------- SIGNUP --------------------
 app.get("/signup", (req, res) => {
     res.send(`
         <h1>Signup Page</h1>
@@ -103,15 +107,13 @@ app.post("/signup", async (req, res) => {
         password: hashedPassword
     });
 
-    res.send(`
-        <h1>User created</h1>
-        <p>Name: ${name}</p>
-        <p>Email: ${email}</p>
-        <a href="/login">Go to login</a>
-    `);
+    req.session.authenticated = true;
+    req.session.name = name;
+    req.session.email = email;
+
+    res.redirect("/members");
 });
 
-// -------------------- LOGIN --------------------
 app.get("/login", (req, res) => {
     res.send(`
         <h1>Login Page</h1>
@@ -167,7 +169,6 @@ app.post("/login", async (req, res) => {
     res.redirect("/members");
 });
 
-// -------------------- MEMBERS --------------------
 app.get("/members", (req, res) => {
     if (!req.session.authenticated) {
         return res.redirect("/");
@@ -187,13 +188,12 @@ app.get("/members", (req, res) => {
     `);
 });
 
-// -------------------- LOGOUT --------------------
 app.get("/logout", (req, res) => {
-    req.session.destroy();
-    res.redirect("/");
+    req.session.destroy(() => {
+        res.redirect("/");
+    });
 });
 
-// -------------------- 404 --------------------
 app.use((req, res) => {
     res.status(404).send(`
         <h1>404</h1>
@@ -202,7 +202,6 @@ app.use((req, res) => {
     `);
 });
 
-// -------------------- SERVER --------------------
 app.listen(PORT, () => {
     console.log(`Server running on http://localhost:${PORT}`);
 });
