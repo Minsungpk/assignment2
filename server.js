@@ -8,6 +8,8 @@ const MongoStore = require("connect-mongo").default;
 const Joi = require("joi");
 
 const app = express();
+app.set("view engine", "ejs");
+
 const PORT = process.env.PORT || 8000;
 
 const client = new MongoClient(process.env.MONGODB_URI);
@@ -20,6 +22,23 @@ async function connectDB() {
 }
 connectDB();
 
+app.use(express.urlencoded({ extended: true }));
+app.use(express.static("public"));
+
+app.use(session({
+    secret: process.env.NODE_SESSION_SECRET,
+    resave: false,
+    saveUninitialized: false,
+    store: MongoStore.create({
+        mongoUrl: process.env.MONGODB_URI,
+        collectionName: "sessions",
+        ttl: 60 * 60
+    }),
+    cookie: {
+        maxAge: 1000 * 60 * 60
+    }
+}));
+
 const signupSchema = Joi.object({
     name: Joi.string().max(50).required(),
     email: Joi.string().email().max(100).required(),
@@ -31,59 +50,28 @@ const loginSchema = Joi.object({
     password: Joi.string().max(100).required()
 });
 
-app.use(express.urlencoded({ extended: true }));
-app.use(express.static("public"));
-
-app.use(session({
-    secret: process.env.NODE_SESSION_SECRET,
-    resave: false,
-    saveUninitialized: false,
-    store: MongoStore.create({
-        mongoUrl: process.env.MONGODB_URI,
-        collectionName: "sessions",
-        ttl: 60 * 60,
-        crypto: {
-            secret: process.env.MONGODB_SESSION_SECRET
-        }
-    }),
-    cookie: {
-        maxAge: 1000 * 60 * 60
+function isAdmin(req, res, next) {
+    if (!req.session.authenticated) {
+        return res.redirect("/login");
     }
-}));
+
+    if (req.session.user_type !== "admin") {
+        return res.status(403).render("error", {
+            message: "You are not authorized to view this page."
+        });
+    }
+
+    next();
+}
 
 app.get("/", (req, res) => {
-    if (req.session.authenticated) {
-        return res.send(`
-            <h1>Home Page</h1>
-            <p>Hello, ${req.session.name}</p>
-            <a href="/members">Go to Members</a><br>
-            <a href="/logout">Log out</a>
-        `);
-    }
-
-    res.send(`
-        <h1>Home Page</h1>
-        <img src="/image1.jpg" width="300">
-        <img src="/image2.jpg" width="300">
-        <img src="/image3.jpg" width="300">
-        <br><br>
-        <a href="/signup">Go to Signup</a><br>
-        <a href="/login">Go to Login</a>
-    `);
+    res.render("index", {
+        user: req.session.name
+    });
 });
 
 app.get("/signup", (req, res) => {
-    res.send(`
-        <h1>Signup Page</h1>
-        <form method="POST" action="/signup">
-            <input name="name" placeholder="Name" required><br>
-            <input name="email" placeholder="Email" required><br>
-            <input name="password" type="password" placeholder="Password" required><br>
-            <button type="submit">Sign Up</button>
-        </form>
-        <br>
-        <a href="/">Go home</a>
-    `);
+    res.render("signup");
 });
 
 app.post("/signup", async (req, res) => {
@@ -92,11 +80,9 @@ app.post("/signup", async (req, res) => {
     const validationResult = signupSchema.validate({ name, email, password });
 
     if (validationResult.error) {
-        return res.send(`
-            <h1>Signup failed</h1>
-            <p>Invalid input.</p>
-            <a href="/signup">Try again</a>
-        `);
+        return res.render("error", {
+            message: "Signup failed. Invalid input."
+        });
     }
 
     const hashedPassword = await bcrypt.hash(password, 12);
@@ -104,27 +90,20 @@ app.post("/signup", async (req, res) => {
     await db.collection("users").insertOne({
         name,
         email,
-        password: hashedPassword
+        password: hashedPassword,
+        user_type: "user"
     });
 
     req.session.authenticated = true;
     req.session.name = name;
     req.session.email = email;
+    req.session.user_type = "user";
 
     res.redirect("/members");
 });
 
 app.get("/login", (req, res) => {
-    res.send(`
-        <h1>Login Page</h1>
-        <form method="POST" action="/login">
-            <input name="email" placeholder="Email" required><br>
-            <input name="password" type="password" placeholder="Password" required><br>
-            <button type="submit">Log In</button>
-        </form>
-        <br>
-        <a href="/">Go home</a>
-    `);
+    res.render("login");
 });
 
 app.post("/login", async (req, res) => {
@@ -133,36 +112,31 @@ app.post("/login", async (req, res) => {
     const validationResult = loginSchema.validate({ email, password });
 
     if (validationResult.error) {
-        return res.send(`
-            <h1>Login failed</h1>
-            <p>Invalid input.</p>
-            <a href="/login">Try again</a>
-        `);
+        return res.render("error", {
+            message: "Login failed. Invalid input."
+        });
     }
 
     const user = await db.collection("users").findOne({ email });
 
     if (!user) {
-        return res.send(`
-            <h1>Login failed</h1>
-            <p>Invalid email/password combination.</p>
-            <a href="/login">Try again</a>
-        `);
+        return res.render("error", {
+            message: "Invalid email/password combination."
+        });
     }
 
     const passwordMatch = await bcrypt.compare(password, user.password);
 
     if (!passwordMatch) {
-        return res.send(`
-            <h1>Login failed</h1>
-            <p>Invalid email/password combination.</p>
-            <a href="/login">Try again</a>
-        `);
+        return res.render("error", {
+            message: "Invalid email/password combination."
+        });
     }
 
     req.session.authenticated = true;
     req.session.name = user.name;
     req.session.email = user.email;
+    req.session.user_type = user.user_type;
 
     res.redirect("/members");
 });
@@ -172,16 +146,35 @@ app.get("/members", (req, res) => {
         return res.redirect("/");
     }
 
-    const images = ["image1.jpg", "image2.jpg", "image3.jpg"];
-    const randomImage = images[Math.floor(Math.random() * images.length)];
+    res.render("members", {
+        name: req.session.name
+    });
+});
 
-    res.send(`
-        <h1>Members Page</h1>
-        <p>Hello, ${req.session.name}</p>
-        <img src="/${randomImage}" width="300">
-        <br><br>
-        <a href="/logout">Log out</a>
-    `);
+app.get("/admin", isAdmin, async (req, res) => {
+    const users = await db.collection("users").find().toArray();
+
+    res.render("admin", {
+        users
+    });
+});
+
+app.get("/promote/:email", isAdmin, async (req, res) => {
+    await db.collection("users").updateOne(
+        { email: req.params.email },
+        { $set: { user_type: "admin" } }
+    );
+
+    res.redirect("/admin");
+});
+
+app.get("/demote/:email", isAdmin, async (req, res) => {
+    await db.collection("users").updateOne(
+        { email: req.params.email },
+        { $set: { user_type: "user" } }
+    );
+
+    res.redirect("/admin");
 });
 
 app.get("/logout", (req, res) => {
@@ -191,11 +184,7 @@ app.get("/logout", (req, res) => {
 });
 
 app.use((req, res) => {
-    res.status(404).send(`
-        <h1>404</h1>
-        <p>Page not found</p>
-        <a href="/">Go home</a>
-    `);
+    res.status(404).render("404");
 });
 
 app.listen(PORT, () => {

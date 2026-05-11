@@ -1,0 +1,18 @@
+<%- include("templates/header") %>
+
+<h1>Admin Page</h1>
+
+<table class="table table-striped">
+    <tr>
+        <th>Name</th>
+        <th>Email</th>
+        <th>User Type</th>
+        <th>Action</th>
+    </tr>
+
+    <% users.forEach(user => { %>
+        <%- include("templates/user", { user: user }) %>
+    <% }) %>
+</table>
+
+<%- include("templates/footer") %>
